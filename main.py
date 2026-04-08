@@ -12,8 +12,8 @@ app = FastAPI()
 # ---------------------------
 # Load model & features
 # ---------------------------
-pipeline = joblib.load(r"C:\Users\admin\Downloads\graduation project\panic_model.pkl")
-feature_names = json.load(open(r"C:\Users\admin\Downloads\graduation project\feature_names.json"))
+pipeline = joblib.load("panic_model.pkl")
+feature_names = json.load(open("feature_names.json"))
 
 WINDOW_SIZE = 20
 THRESHOLD = 0.7
