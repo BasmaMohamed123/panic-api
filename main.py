@@ -20,7 +20,11 @@ THRESHOLD = 0.7
 buffer = []
 counter = 0
 alarm_on = False
+ALARM_HOLD = 5  # عدد القراءات اللي نحتفظ فيها بالalarm True
 
+# ---------------------------
+# Sensor Data Model
+# ---------------------------
 class SensorData(BaseModel):
     heart_rate: float
     hrv: float
@@ -30,6 +34,9 @@ class SensorData(BaseModel):
     ay: float
     az: float
 
+# ---------------------------
+# Feature Extraction
+# ---------------------------
 def extract_features(window):
     feats = {}
     cols = ["HR", "HRV", "EDA", "TEMP", "ACC_X", "ACC_Y", "ACC_Z"]
@@ -44,31 +51,41 @@ def extract_features(window):
         feats[f"{col}_median"] = np.median(sig)
     return feats
 
+# ---------------------------
+# Prediction Endpoint
+# ---------------------------
 @app.post("/predict")
 def predict(data: SensorData):
     global buffer, counter, alarm_on
 
+    # Append new reading
     row = [data.heart_rate, data.hrv, data.gsr_value, 
            data.temperature, data.ax, data.ay, data.az]
-    
     buffer.append(row)
 
+    # Maintain sliding window size
+    if len(buffer) > WINDOW_SIZE:
+        buffer.pop(0)
+
+    # Return collecting status if not enough data
     if len(buffer) < WINDOW_SIZE:
         return {
             "status": "collecting data",
             "buffer_size": len(buffer)
         }
 
-    window = buffer[-WINDOW_SIZE:]
-    feats = extract_features(window)
+    # Extract features from window
+    feats = extract_features(buffer)
     df_feats = pd.DataFrame([feats])[feature_names]
 
+    # Predict
     prob = pipeline.predict_proba(df_feats)[0][1]
     pred = int(prob > THRESHOLD)
 
-    if prob > THRESHOLD:
+    # Update counter for alarm stability
+    if pred == 1:  # High Risk
         counter += 1
-    else:
+    else:          # Low Risk
         counter = 0
         alarm_on = False
 
@@ -76,10 +93,16 @@ def predict(data: SensorData):
     if counter >= 3 and not alarm_on:
         alarm = True
         alarm_on = True
+    elif alarm_on:
+        # Keep alarm on for ALARM_HOLD readings
+        if counter > 0:
+            alarm = True
+        else:
+            alarm_on = False
 
     return {
-            "risk": "High Risk" if pred == 1 else "Low Risk",
-            "confidence": float(round(prob * 100, 2)),  # float بدلاً من numpy.float32
-            "alarm": bool(alarm),                        # bool بدلاً من numpy.bool_
-            "buffer_size": int(len(buffer))              # int بدلاً من numpy.int64
-        }
+        "risk": "High Risk" if pred == 1 else "Low Risk",
+        "confidence": float(round(prob * 100, 2)),
+        "alarm": bool(alarm),
+        "buffer_size": int(len(buffer))
+    }
